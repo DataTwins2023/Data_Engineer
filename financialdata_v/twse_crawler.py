@@ -7,6 +7,10 @@ import pandas as pd
 import requests
 from loguru import logger
 from pydantic import BaseModel
+from tqdm import tqdm
+
+sys.path.append('./')
+from financialdata_v.router import Router
 
 
 def clear_data(
@@ -159,7 +163,7 @@ def crawler_twse(
     df = colname_zh2en(
         df.copy(), colname
     )
-    df["date"] = date
+    df["Date"] = date
     return df
 
 
@@ -173,7 +177,7 @@ class TaiwanStockPrice(BaseModel):
     Min: float
     Close: float
     Change: float
-    date: str
+    Date: str
 
 
 def check_schema(
@@ -225,22 +229,28 @@ def main(
     date_list = gen_date_list(
         start_date, end_date
     )
-    for date in date_list:
+    db_router = Router()
+    for date in tqdm(date_list):
         logger.info(date)
-        df = crawler_twse(date)
+        df = crawler_twse(date=date)
         if len(df) > 0:
             # 資料清理
             df = clear_data(df.copy())
             # 檢查資料型態
             df = check_schema(df.copy())
-            # 這邊先暫時存成 file，下個章節將會上傳資料庫
-            df.to_csv(
-                f"taiwan_stock_price_twse_{date}.csv",
-                index=False,
-            )
+            # upload db
+            try:
+                df.to_sql(
+                    name="TaiwanStockPrice",
+                    con=db_router.mysql_financialdata_conn,
+                    if_exists="append",
+                    index=False,
+                    chunksize=1000,
+                )
+            except Exception as e:
+                logger.info(e)
 
 
 if __name__ == "__main__":
     start_date, end_date = sys.argv[1:]
     main(start_date, end_date)
-    print("down")
